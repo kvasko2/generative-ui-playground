@@ -1,0 +1,30 @@
+{
+  "name": "office-bot",
+  "license": "MIT",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@types/file-saver": "^2.0.5",
+    "@types/hark": "^1.2.2",
+    "@types/node": "^20.2.5",
+    "@types/react": "^18.2.7",
+    "@types/react-dom": "^18.2.4",
+    "eslint": "^8.41.0",
+    "eslint-config-next": "^13.4.4",
+    "file-saver": "^2.0.5",
+    "hark": "^1.2.3",
+    "langchain": "^0.0.85",
+    "next": "^13.4.4",
+    "openai": "^3.2.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "stability-client": "^1.9.0",
+    "typescript": "^5.0.4"
+  }
+}
