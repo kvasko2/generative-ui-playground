@@ -15,7 +15,7 @@ const mimeType = 'audio/webm';
 const audioOptions: MediaRecorderOptions = { mimeType: mimeType };
 
 interface TranscriptionResponse {
-  transcription: string;
+  transcript: string;
 }
 
 const Transcriber = () => {
@@ -39,20 +39,35 @@ const Transcriber = () => {
 
   const [transcription, setTranscription] = useState<string>('');
 
-  // Setup and destroy the speaking events
-  useEffect(() => {
-    if (listener) {
-      listener.on('speaking', () => {
-        console.log('speaking');
+  // Handle speech pauses
+  const transcriptSpeechChunk = async () => {
+    await pauseRecording();
+    await resumeRecording();
+  };
+
+  const sendAudio = async () => {
+    console.log('send audio: ', audioChunks.length);
+    if (audioChunks.length > 0) {
+      const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
+      const audioFile = new File([finalAudioBlob], 'audiofile.webm', {
+        type: mimeType
       });
-      listener.on('stopped_speaking', async () => {
-        pauseRecording();
-        resumeRecording();
-        await sendAudio();
-        console.log('stopped speaking');
+
+      const formData = new FormData();
+      formData.append('file', audioFile);
+
+      const result = await fetch('/api/audio/speech-to-text', {
+        method: 'POST',
+        mode: 'cors',
+        body: formData
       });
+
+      const data = (await result.json()) as TranscriptionResponse;
+
+      console.log('result: ', data.transcript);
+      return data && data.transcript ? data.transcript : '';
     }
-  }, [listener]);
+  };
 
   const getMicPermission = async () => {
     if (mediaRecorderSupported) {
@@ -90,6 +105,7 @@ const Transcriber = () => {
 
       let localAudioChunks: Blob[] = [];
       media.ondataavailable = (event: BlobEvent) => {
+        console.log('data available');
         if (typeof event.data === 'undefined' || event.data.size === 0) return;
         localAudioChunks.push(event.data);
       };
@@ -108,17 +124,28 @@ const Transcriber = () => {
     }
   };
 
-  const clearAudioChunks = () => {
+  const clearAudioChunks = async () => {
     console.log('clear audio chunks: ', audioChunks.length);
     if (audioChunks.length > 0) {
       console.log('audio chunks length: ', audioChunks.length);
+      const transcribedChunk = await sendAudio();
+      if (transcribedChunk)
+        console.log('transcribed chunk: ', transcribedChunk.toLowerCase());
+      if (
+        transcribedChunk &&
+        transcribedChunk.toLowerCase().includes('ava') &&
+        transcribedChunk.toLowerCase().includes('?')
+      ) {
+        console.log('should send to generative model');
+      }
+      setTranscription(transcription + '' + transcribedChunk);
       // Create a new blob with all of the recorded audio
       const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
       // Make a playable URL from the audio blob
       const audioUrl = URL.createObjectURL(finalAudioBlob);
       setAudioUrl(audioUrl);
       // Delete the audio blobs
-      // setAudioChunks([]); Saving audio blobs to be sent to server
+      setAudioChunks([]);
     }
   };
 
@@ -152,30 +179,18 @@ const Transcriber = () => {
     setMediaRecorder(undefined);
   };
 
-  const sendAudio = async () => {
-    console.log('send audio: ', audioChunks.length);
-    if (audioChunks.length > 0) {
-      const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
-      const audioFile = new File([finalAudioBlob], 'audiofile.webm', {
-        type: mimeType
+  // Setup and destroy the speaking events
+  useEffect(() => {
+    if (listener) {
+      listener.on('speaking', () => {
+        console.log('speaking');
       });
-      setAudioChunks([]);
-
-      const formData = new FormData();
-      formData.append('file', audioFile);
-
-      const result = await fetch('/api/audio/speech-to-text', {
-        method: 'POST',
-        mode: 'cors',
-        body: formData
+      listener.on('stopped_speaking', () => {
+        console.log('stopped speaking');
+        transcriptSpeechChunk();
       });
-
-      const data = (await result.json()) as TranscriptionResponse;
-
-      console.log('result: ', data.transcription);
-      return data?.transcription || '';
     }
-  };
+  }, [listener]);
 
   return (
     <>
@@ -198,6 +213,10 @@ const Transcriber = () => {
                 {recordingState === RecordingState.Recording ? 'Stop' : 'Start'}
               </button>
             )}
+          </div>
+          <div>
+            <h3>Transcription</h3>
+            <div>{transcription}</div>
           </div>
           {audioUrl && (
             <div>

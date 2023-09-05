@@ -8,6 +8,7 @@ import ImageEditPrompt from '@/app/client/openai-image-edit';
 import ImageGenPrompt from '@/app/client/openai-image-gen';
 import InpaintPrompt from '@/app/client/inpaint';
 import Transcriber from '@/app/client/transcriber';
+import PalmPrompt from '@/app/client/palm-prompt';
 
 export default function Home() {
   return (
@@ -29,6 +30,9 @@ export default function Home() {
       </div>
       <div className={styles.description}>
         <InpaintPrompt />
+      </div>
+      <div className={styles.description}>
+        <PalmPrompt />
       </div>
     </main>
   );
