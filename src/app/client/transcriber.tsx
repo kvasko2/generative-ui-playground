@@ -3,6 +3,48 @@ import React, { useEffect, useState } from 'react';
 import { saveAs } from 'file-saver';
 // A beautiful library to help determine if somebody is speaking.
 import hark, { Harker } from 'hark';
+import { PromptResponse } from '@/types';
+
+const prompt = `
+Introduction:
+
+You are Ava, the Echoing Digital Co-Host on "Imagine This!" Directly interact with the guests by addressing them personally and diving deep into their presented topics, emphasizing connections, implications, and insights. Keep responses concise, ideally under 100 words, and always engage directly with the guests.
+
+Guidelines:
+1. Engage with Depth: Echo guest points, connect patterns, and offer deeper insights. Move beyond mere summarization.
+2. Maintain a Conversational Tone: Adopt a friendly and informal demeanor. Make sure your insights are direct and relatable.
+3. Direct Address: Address the guest without overusing their name. Use phrases like "Regarding your statement..." or "Your point on..."
+4. Echo Back: Emphasize key ideas by relating them to the guest's statements.
+5. Anticipate Audience Queries: Integrate potential questions the wider audience might have.
+6. Complement, Don’t Overshadow: Reinforce guest's points without dominating.
+7. Scenario Testing: Explore topics deeply, providing clarifications or fact-checks as necessary.
+8. Audience Simulation: Address broader concerns to ensure inclusive conversation.
+9. Deep Dive: Bring up tangents or related sub-topics to provide deeper insights or anecdotes.
+10. Challenge & Expand: Respond to challenging or controversial statements, adding depth without overshadowing.
+
+Voice and Tone:
+Warmth and clarity are key. Light humor or anecdotes, when appropriate, are encouraged.
+
+Role Dynamics:
+Actively listen and align with the direction and tone of the guest's discourse. Offer fact-checks, scenario illustrations, or insights based on the guest's queries or points.
+
+Response Closure:
+After sharing insights, transition the conversation back, prompting the guest for their thoughts or next point.
+
+Domain-Specific Knowledge: Climate and Sustainability:
+You are familiar with the 5 climate change scenarios for business strategies:
+· Disruption & Dissonance: Scarce resources, climate inaction, nationalism rise.
+· Regional Alliances: Green trade blocs with ties to resource pools and local supply chains.
+· Coordinated Action: Notable climate agreement with diverse outcomes.
+· Green Market Revolution: Private decarbonization leads, but inequality grows.
+· Just Transition: Equitable green transition but at slower growth rates.
+
+Remember the takeaways: Strategy testing against these scenarios, pinpointing vulnerabilities/opportunities, focusing on no-regret moves, and detecting early warning signals.
+
+Introduction by Ava: Please introduce yourself. Keep your responses short and concise, under 100 words.
+
+Please respond to the following conversation. Keep it brief, no more than 100 words: 
+`;
 
 enum RecordingState {
   None = 0,
@@ -17,6 +59,82 @@ const audioOptions: MediaRecorderOptions = { mimeType: mimeType };
 interface TranscriptionResponse {
   transcript: string;
 }
+
+const sendAudio = async (
+  audioChunks: Blob[],
+  handleResult: (transcribedChunk: string) => void
+) => {
+  console.log('send audio: ', audioChunks.length);
+  if (audioChunks.length > 0) {
+    const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
+    const audioFile = new File([finalAudioBlob], 'audiofile.webm', {
+      type: mimeType
+    });
+
+    const formData = new FormData();
+    formData.append('file', audioFile);
+
+    const result = await fetch('/api/audio/speech-to-text', {
+      method: 'POST',
+      mode: 'cors',
+      body: formData
+    });
+
+    const data = (await result.json()) as TranscriptionResponse;
+
+    console.log('result: ', data.transcript);
+    handleResult(data && data.transcript ? data.transcript : '');
+  }
+};
+
+const requestResponse = async (conversation: string) => {
+  const inputPrompt = `${prompt}\n${conversation}`;
+  try {
+    const result = await fetch(`/api/prompt`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prompt: inputPrompt })
+    });
+
+    const promptResponse = (await result.json()) as PromptResponse;
+    return promptResponse.response;
+  } catch (error) {
+    console.log('error: ', error);
+    return;
+  }
+};
+
+const responseToAudio = async (aiResponse: string) => {
+  try {
+    const result = await fetch(`/api/audio/text-to-speech`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        Accept: 'audio/mpeg',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        aiResponse: aiResponse,
+        voiceId: 'vwFpaBHlcYO2aUyLnfUk'
+      })
+    });
+
+    const audioBlob = await result.blob();
+    /*const audioFile = new File([audioBlob], 'response.mpeg', {
+      type: 'audio/mpeg'
+    });
+    console.log('*****text to speech: ', audioFile.name);
+    return audioFile;*/
+    return audioBlob;
+  } catch (error) {
+    console.log('error: ', error);
+    return;
+  }
+};
 
 const Transcriber = () => {
   const [permission, setPermission] = useState<boolean>(false);
@@ -37,7 +155,9 @@ const Transcriber = () => {
     setMediaRecorderSupported(mediaRecorderSupported);
   }, []);
 
-  const [transcription, setTranscription] = useState<string>('');
+  const [latestTranscription, setLatestTrascription] = useState<string>('');
+  const [conversation, setConversation] = useState<string[]>([]);
+  const [aiResponse, setAiResponse] = useState<string>();
 
   // Handle speech pauses
   const transcriptSpeechChunk = async () => {
@@ -45,27 +165,48 @@ const Transcriber = () => {
     await resumeRecording();
   };
 
-  const sendAudio = async () => {
-    console.log('send audio: ', audioChunks.length);
-    if (audioChunks.length > 0) {
-      const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
-      const audioFile = new File([finalAudioBlob], 'audiofile.webm', {
-        type: mimeType
-      });
+  const genAiResponse = async (currentConversation: string[]) => {
+    const resp = await requestResponse(currentConversation.join(' '));
 
-      const formData = new FormData();
-      formData.append('file', audioFile);
+    setAiResponse(resp);
 
-      const result = await fetch('/api/audio/speech-to-text', {
-        method: 'POST',
-        mode: 'cors',
-        body: formData
-      });
+    if (resp) {
+      console.log('response: ', resp);
+      const responseVoiced = await responseToAudio(resp);
 
-      const data = (await result.json()) as TranscriptionResponse;
+      if (responseVoiced) {
+        console.log('blob: ', responseVoiced);
+        const finalAudioBlob = new Blob([responseVoiced], { type: mimeType });
+        const audioUrl = URL.createObjectURL(responseVoiced);
+        setAudioUrl(audioUrl);
+      }
+    }
+  };
 
-      console.log('result: ', data.transcript);
-      return data && data.transcript ? data.transcript : '';
+  useEffect(() => {
+    console.log('transcription: ', latestTranscription);
+    if (
+      latestTranscription !== '' &&
+      typeof latestTranscription === 'string' &&
+      !conversation.includes(latestTranscription)
+    ) {
+      if (
+        latestTranscription &&
+        latestTranscription.toLowerCase().includes('ava') &&
+        latestTranscription.toLowerCase().includes('?')
+      ) {
+        console.log('should send to generative model');
+        genAiResponse([...conversation, latestTranscription]);
+      }
+
+      setConversation([...conversation, latestTranscription]);
+    }
+  }, [latestTranscription, conversation]);
+
+  const addToConversation = (transcribedChunk: string) => {
+    if (transcribedChunk) {
+      console.log('transcribed chunk: ', transcribedChunk.toLowerCase());
+      setLatestTrascription(transcribedChunk);
     }
   };
 
@@ -88,12 +229,12 @@ const Transcriber = () => {
     setRecordingState(RecordingState.Recording);
     console.log('start recording');
     // Reset the audio chunks
-    setAudioChunks([]);
+    //setAudioChunks([]);
     if (audioStream) {
       // Setup a new media recorder instance with the given stream
       const media = new MediaRecorder(audioStream, audioOptions);
       setMediaRecorder(media);
-      media.start();
+      //media.start();
 
       // Setup hark to capture speaking
       setListener(
@@ -103,14 +244,16 @@ const Transcriber = () => {
         })
       );
 
-      let localAudioChunks: Blob[] = [];
+      //let localAudioChunks: Blob[] = [];
       media.ondataavailable = (event: BlobEvent) => {
-        console.log('data available');
+        console.log('data available: ', event.data.size);
         if (typeof event.data === 'undefined' || event.data.size === 0) return;
-        localAudioChunks.push(event.data);
+        //localAudioChunks.push(event.data);
+        //setAudioChunks([...audioChunks, event.data]);
+        sendAudio([event.data], addToConversation);
       };
 
-      setAudioChunks(localAudioChunks);
+      //setAudioChunks(localAudioChunks);
     }
   };
 
@@ -124,48 +267,44 @@ const Transcriber = () => {
     }
   };
 
-  const clearAudioChunks = async () => {
-    console.log('clear audio chunks: ', audioChunks.length);
-    if (audioChunks.length > 0) {
-      console.log('audio chunks length: ', audioChunks.length);
-      const transcribedChunk = await sendAudio();
-      if (transcribedChunk)
-        console.log('transcribed chunk: ', transcribedChunk.toLowerCase());
-      if (
-        transcribedChunk &&
-        transcribedChunk.toLowerCase().includes('ava') &&
-        transcribedChunk.toLowerCase().includes('?')
-      ) {
-        console.log('should send to generative model');
-      }
-      setTranscription(transcription + '' + transcribedChunk);
+  const processAudioChunks = async (audioChunksLoc: Blob[]) => {
+    console.log('clear audio chunks: ', audioChunksLoc.length);
+    if (audioChunksLoc.length > 0) {
+      console.log('audio chunks length: ', audioChunksLoc.length);
+      await sendAudio([...audioChunksLoc], addToConversation);
       // Create a new blob with all of the recorded audio
-      const finalAudioBlob = new Blob(audioChunks, { type: mimeType });
+      const finalAudioBlob = new Blob(audioChunksLoc, { type: mimeType });
       // Make a playable URL from the audio blob
       const audioUrl = URL.createObjectURL(finalAudioBlob);
       setAudioUrl(audioUrl);
       // Delete the audio blobs
-      setAudioChunks([]);
+      //setAudioChunks([]);
     }
   };
 
-  const pauseRecording = () => {
+  const pauseRecording = async () => {
     console.log('pause recording');
     setRecordingState(RecordingState.Stopped);
     if (mediaRecorder) {
-      mediaRecorder.stop();
+      //mediaRecorder.stop();
       // This is not working as described
-      mediaRecorder.onstop = clearAudioChunks;
+      //mediaRecorder.onstop = async () => {
+      await processAudioChunks(audioChunks);
+      setAudioChunks([]);
+      //};
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     console.log('stop recording');
     setRecordingState(RecordingState.Stopped);
     if (mediaRecorder) {
       mediaRecorder.stop();
       // This is not working as described
-      mediaRecorder.onstop = clearAudioChunks;
+      mediaRecorder.onstop = async () => {
+        await processAudioChunks(audioChunks);
+        setAudioChunks([]);
+      };
     }
 
     // Remove the hark event listeners
@@ -184,9 +323,11 @@ const Transcriber = () => {
     if (listener) {
       listener.on('speaking', () => {
         console.log('speaking');
+        //mediaRecorder?.start();
       });
       listener.on('stopped_speaking', () => {
         console.log('stopped speaking');
+        mediaRecorder?.stop();
         transcriptSpeechChunk();
       });
     }
@@ -216,14 +357,30 @@ const Transcriber = () => {
           </div>
           <div>
             <h3>Transcription</h3>
-            <div>{transcription}</div>
+            <div>{conversation.join(' ')}</div>
           </div>
-          {audioUrl && (
+          <div>
+            <h3>Responses</h3>
+            <div>{aiResponse}</div>
+          </div>
+          {/*audioUrl && (
             <div>
               <h4>Audio recording</h4>
               <audio src={audioUrl} controls />
               <span />
-              <button onClick={sendAudio}>Speech to text</button>
+              <button
+                onClick={() =>
+                  sendAudio([...audioChunks], addToConversation, transcription)
+                }
+              >
+                Speech to text
+              </button>
+            </div>
+              )*/}
+          {audioUrl && (
+            <div>
+              <h4>Audio playback</h4>
+              <audio src={audioUrl} autoPlay />
             </div>
           )}
           {audioUrl && (

@@ -41,3 +41,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error });
   }
 }
+
+export async function POST(request: Request) {
+  console.log('image request: ', request);
+  const { prompt } = (await request.json()) as { prompt: string };
+  console.log('prompt: ', prompt);
+  console.log('text: ', prompt);
+  try {
+    //console.log('**********', process.cwd());
+    if (prompt) {
+      const promptResponse = await sendPrompt(prompt);
+      console.log('respnose: ', promptResponse);
+      return NextResponse.json({ response: promptResponse.trim() });
+    } else {
+      return NextResponse.json({ warning: 'No prompt input provided.' });
+    }
+  } catch (error) {
+    console.log('error: ', error);
+    return NextResponse.json({ error: error });
+  }
+}

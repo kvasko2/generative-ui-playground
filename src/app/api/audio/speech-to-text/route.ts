@@ -14,7 +14,7 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration);
 
 export async function POST(request: Request) {
-  console.log('speech to text request: ', request);
+  //console.log('speech to text request: ', request);
   const requestFormData = await request.formData();
   const audioFile = requestFormData.get('file');
 
